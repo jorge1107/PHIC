@@ -18,16 +18,16 @@ Time Slot::getInsercao() {
     return insercao;
 }
 
-void Slot::setInsercao(int horario) {
-    insercao.segundo = horario % 60;
+void Slot::setInsercao(Time _insercao) {
+    insercao = _insercao;
 }
 
 Time Slot::getRetirada() {
     return retirada;
 }
 
-void Slot::setRetirada(int horario) {
-    retirada.segundo = horario % 60;
+void Slot::setRetirada(Time _retirada) {
+    retirada = _retirada;
 }
 
 bool Slot::isOcupado() {

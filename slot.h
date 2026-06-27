@@ -22,9 +22,9 @@ public:
     Slot(int _id); // Construtor da classe
     ~Slot(); // Destrutor da classe
     Time getInsercao(); // Retorna a data e hora de inserção do slot
-    void setInsercao(int horario); // Define a data e hora de inserção do slot
+    void setInsercao(Time horario); // Define a data e hora de inserção do slot
     Time getRetirada(); // Retorna a data e hora de retirada do slot
-    void setRetirada(int horario); // Define a data e hora de retirada do slot
+    void setRetirada(Time horario); // Define a data e hora de retirada do slot
     int getApartamento(); // Retorna o número do apartamento associado ao slot
     void setApartamento(int _apartamento); // Define o número do apartamento associado ao slot
     int getId(); // Retorna o identificador do slot
