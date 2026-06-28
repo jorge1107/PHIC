@@ -1,5 +1,4 @@
 #include "slot.h"
-#include <iostream>
 
 Slot::Slot(int _id) {
     id = _id;
@@ -60,8 +59,6 @@ void Slot::setApartamento(int _apartamento) {
         _apartamento == 1401) {
 
         apartamento = _apartamento;
-    } else {
-        std::cerr << "Número de apartamento inválido." << std::endl;
     }
 }
 
@@ -72,8 +69,6 @@ int Slot::getId() {
 void Slot::setId(int _id) {
     if (_id > 0) {
         id = _id;
-    } else {
-        std::cerr << "ID inválido. Deve ser maior que zero." << std::endl;
     }
 }
 
@@ -84,7 +79,5 @@ char Slot::getTamanho() {
 void Slot::setTamanho(char _tamanho) {
     if (_tamanho == 'P' || _tamanho == 'M' || _tamanho == 'G') {
         tamanho = _tamanho;
-    } else {
-        std::cerr << "Tamanho inválido. Use 'P', 'M' ou 'G'." << std::endl;
     }
 }
