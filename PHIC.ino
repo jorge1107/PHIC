@@ -13,8 +13,8 @@
  * ==========================================================================*/
 
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+//#include <WiFiClientSecure.h>
+//#include <HTTPClient.h>
 #include <time.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -29,7 +29,6 @@
 
 // ----------------------------- Periféricos ----------------------------------
 LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
-Adafruit_MCP23X17 mcp;                       // 16 saídas -> 16 trincos
 MFRC522           rfid(RFID_SS_PIN, RFID_RST_PIN);
 
 // --------------------------- Teclado 4x4 ------------------------------------
@@ -505,23 +504,6 @@ void enviarNotificacao(int numeroApto, int idSlot, char tamanho) {
   if (telefone == "") {
     Serial.println("Apto sem telefone cadastrado: notificacao ignorada.");
     return;
-  }
-
-  // Mensagem sem acentos/caracteres especiais (simplifica o URL-encode).
-  String msg = "Ola! Chegou uma encomenda (tam " + String(tamanho) + ") para o apto " + String(numeroApto) + ", guardada no armario " + String(idSlot) + ". Aproxime sua tag RFID para retirar.";
-  msg.replace(" ", "+");
-
-  String url = "https://api.callmebot.com/whatsapp.php?phone=" + telefone + "&text=" + msg + "&apikey=" + String(CALLMEBOT_APIKEY);
-
-  WiFiClientSecure client;
-  client.setInsecure();                 // CallMeBot: dispensa validar certificado
-  HTTPClient https;
-  if (https.begin(client, url)) {
-    int code = https.GET();
-    Serial.printf("CallMeBot resposta HTTP: %d\n", code);
-    https.end();
-  } else {
-    Serial.println("Falha ao iniciar conexao HTTPS.");
   }
 }
 

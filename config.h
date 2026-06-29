@@ -13,7 +13,7 @@
 // =================== CallMeBot (WhatsApp) ===================
 // Crie a chave seguindo: https://www.callmebot.com/blog/free-api-whatsapp-messages/
 // O telefone do destinatário vem do cadastro (moradores.cpp).
-#define CALLMEBOT_APIKEY "123456"   // <-- troque pela SUA chave
+//#define CALLMEBOT_APIKEY "123456"   // <-- troque pela SUA chave
 
 // =================== Endereços I2C ===================
 #define LCD_ADDR  0x27   // ou 0x3F, conforme o módulo

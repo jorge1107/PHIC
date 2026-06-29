@@ -1,6 +1,8 @@
 #ifndef MORADORES_H
 #define MORADORES_H
 
+#include <Arduino.h>
+
 // Cada morador vincula: número do apartamento <-> tag RFID <-> telefone WhatsApp.
 struct Morador {
   int    apartamento;
