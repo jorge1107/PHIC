@@ -1,26 +1,20 @@
 #include "moradores.h"
-
-// ----------------------------------------------------------------------------
-// CADASTRO. Em um produto final isto viria de um banco/NVS/SD; aqui fica fixo
-// no código para facilitar os testes. Para descobrir o UID de uma tag, use o
-// "modo cadastro" (segure '#' por ~2 s na tela inicial) e leia o Serial Monitor.
-// ----------------------------------------------------------------------------
 static Morador cadastro[] = {
-  //  apto   UID da tag        telefone (WhatsApp)
-  {  101,  "8A2F7C15",      "5584999990001" },
-  {  201,  "",      "5584999990002" },
-  {  301,  "",      "5584999990003" },
-  {  401,  "",      "5584999990001" },
-  {  501,  "",      "5584999990002" },
-  {  601,  "",      "5584999990003" },
-  {  701,  "7BAF561C",      "5584999949352" },
-  {  801,  "",      "5584999990002" },
-  {  901,  "",      "5584999990003" },
-  { 1001,  "",      "5584999990001" },
-  { 1101,  "",      "5584999990002" },
-  { 1201,  "",      "5584999990003" },
-  { 1301,  "",      "5584999990001" },
-  { 1401,  "",      "5584999990002" }
+  //  apto   UID da tag        email
+  { 101, "8A2F7C15", ""},
+  { 201, "00000000", ""},
+  { 301, "00000000", ""},
+  { 401, "00000000", ""},
+  { 501, "00000000", ""},
+  { 601, "00000000", ""},
+  { 701, "7BAF561C", "jorgelucas1107@gmail.com" },
+  { 801, "00000000", ""},
+  { 901, "00000000", ""},
+  {1001, "00000000", ""},
+  {1101, "00000000", ""},
+  {1201, "00000000", ""},
+  {1301, "00000000", ""},
+  {1401, "00000000", ""}
 };
 static const int N_MORADORES = sizeof(cadastro) / sizeof(cadastro[0]);
 
@@ -33,10 +27,10 @@ int getAptoByUID(const String& uid) {
   return -1;
 }
 
-String getTelefoneByApto(int apartamento) {
+String getEmailByApto(int apartamento) {
   for (int i = 0; i < N_MORADORES; i++) {
     if (cadastro[i].apartamento == apartamento) {
-      return cadastro[i].telefone;
+      return cadastro[i].email;
     }
   }
   return "";

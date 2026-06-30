@@ -10,11 +10,6 @@
 #define GMT_OFFSET_SEC (-10800)   // UTC-3 (Brasília) em segundos
 #define DAYLIGHT_SEC   0          // 0 = sem horário de verão
 
-// =================== CallMeBot (WhatsApp) ===================
-// Crie a chave seguindo: https://www.callmebot.com/blog/free-api-whatsapp-messages/
-// O telefone do destinatário vem do cadastro (moradores.cpp).
-//#define CALLMEBOT_APIKEY "123456"   // <-- troque pela SUA chave
-
 // =================== Endereços I2C ===================
 #define LCD_ADDR  0x27   // ou 0x3F, conforme o módulo
 #define MCP_ADDR  0x20   // A0=A1=A2 ligados ao GND

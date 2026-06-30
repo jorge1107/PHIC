@@ -517,9 +517,9 @@ void enviarNotificacao(int numeroApto, int idSlot, char tamanho) {
     Serial.println("Sem WiFi: notificacao nao enviada.");
     return;
   }
-  String telefone = getTelefoneByApto(numeroApto);
-  if (telefone == "") {
-    Serial.println("Apto sem telefone cadastrado: notificacao ignorada.");
+  String email = getEmailByApto(numeroApto);
+  if (email == "") {
+    Serial.println("Apto sem email cadastrado: notificacao ignorada.");
     return;
   }
 }
