@@ -13,14 +13,13 @@
  * ==========================================================================*/
 
 #include <WiFi.h>
-//#include <WiFiClientSecure.h>
-//#include <HTTPClient.h>
 #include <time.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <MFRC522.h>
+#include <ESP32Servo.h>
 #include <vector>
 
 #include "config.h"
@@ -30,6 +29,8 @@
 // ----------------------------- Periféricos ----------------------------------
 LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 MFRC522           rfid(RFID_SS_PIN, RFID_RST_PIN);
+Servo servos[N_SERVOS];
+const int pinosServos[N_SERVOS] = {S2, S1, S0};
 
 // --------------------------- Teclado 4x4 ------------------------------------
 const byte LINHAS = 4;
@@ -103,6 +104,22 @@ void setup() {
     listaDeSlots.push_back(slotTemporario);
   }
 
+  for (int i = 0; i < N_SERVOS; i++)
+  {
+    servos[i].setPeriodHertz(50);
+    servos[i].attach(pinosServos[i], 500, 2400);
+    servos[i].write(0);
+  }
+  
+
+  /*
+  pinMode(S3, OUTPUT);
+  pinMode(S2, OUTPUT);
+  pinMode(S1, OUTPUT);
+  pinMode(S0, OUTPUT);
+  pinMode(E, OUTPUT);
+  */
+
   estadoAtual = AGUARDANDO;
   atualizarDisplay();
 }
@@ -159,7 +176,7 @@ void atualizarDisplay() {
       lcd.print("Apto: ");
       lcd.print(apartamentoDigitado);
       lcd.setCursor(0, 1);
-      lcd.print("#=OK  *=Apaga");
+      lcd.print("#=OK *=Apagar");
       break;
 
     case SELECIONANDO_TAMANHO:
@@ -233,9 +250,6 @@ void processarTeclado(char tecla) {
 void tentarAlocarCompartimento() {
   int  apNum     = apartamentoDigitado.toInt();
   bool encontrou = false;
-
-  // Opcional: rejeitar apartamento sem morador cadastrado (não recebe aviso).
-  // if (!aptoCadastrado(apNum)) { ...mensagem... ; return; }
 
   for (size_t i = 0; i < listaDeSlots.size(); i++) {
     if (listaDeSlots[i].getTamanho() == tamanhoSelecionado && !listaDeSlots[i].isOcupado()) {
@@ -312,7 +326,7 @@ void processarRetirada(const String& uid) {
       abrirSlot(idSlot);
       listaDeSlots[i].setRetirada(obterHoraAtual());
       listaDeSlots[i].setOcupado(false);
-      listaDeSlots[i].setApartamento(0);   // 0 é válido na sua classe Slot
+      listaDeSlots[i].setApartamento(0);
       abertos++;
     }
   }
@@ -333,161 +347,164 @@ void processarRetirada(const String& uid) {
 // ============================================================================
 //                       ACIONAMENTO FÍSICO DO TRINCO
 // ============================================================================
-// O ID do slot (1..16) mapeia diretamente para o pino do MCP23017 (0..15).
-// A saída HIGH energiza o driver (transistor/relé/ULN2803) que abre o solenoide.
 void abrirSlot(int idSlot) {
+
+
+
+  /*
   int pino = idSlot - 1;
   if (pino < 0 || pino >= N_SLOTS) return;
 
-  switch (pino)
-  {
-  case 0:
-    digitalWrite(s3, LOW);
-    digitalWrite(s2, LOW);
-    digitalWrite(s1, LOW);
-    digitalWrite(s0, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 1:
-    digitalWrite(s3, LOW);
-    digitalWrite(s2, LOW);
-    digitalWrite(s1, LOW);
-    digitalWrite(s0, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 2:
-    digitalWrite(s0, LOW);
-    digitalWrite(s1, LOW);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s3, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 3:
-    digitalWrite(s0, LOW);
-    digitalWrite(s1, LOW);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s3, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 4:
-    digitalWrite(s0, LOW);
-    digitalWrite(s1, HIGH);
-    digitalWrite(s2, LOW);
-    digitalWrite(s3, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 5:
-    digitalWrite(s3, LOW);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s1, LOW);
-    digitalWrite(s0, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 6:
-    digitalWrite(s3, LOW);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s1, HIGH);
-    digitalWrite(s0, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 7:
-    digitalWrite(s3, LOW);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s1, HIGH);
-    digitalWrite(s0, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 8:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, LOW);
-    digitalWrite(s1, LOW);
-    digitalWrite(s0, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 9:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, LOW);
-    digitalWrite(s1, LOW);
-    digitalWrite(s0, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 10:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, LOW);
-    digitalWrite(s1, HIGH);
-    digitalWrite(s0, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 11:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, LOW);
-    digitalWrite(s1, HIGH);
-    digitalWrite(s0, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 12:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s1, LOW);
-    digitalWrite(s0, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 13:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s1, LOW);
-    digitalWrite(s0, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 14:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s1, HIGH);
-    digitalWrite(s0, LOW);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  case 15:
-    digitalWrite(s3, HIGH);
-    digitalWrite(s2, HIGH);
-    digitalWrite(s1, HIGH);
-    digitalWrite(s0, HIGH);
-    digitalWrite(e, HIGH);
-    delay(LOCK_PULSE_MS);
-    digitalWrite(e, LOW);
-    break;
-  default:
-    break;
+  
+  switch (pino) {
+    case 0:
+      digitalWrite(S3, LOW);
+      digitalWrite(S2, LOW);
+      digitalWrite(S1, LOW);
+      digitalWrite(S0, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 1:
+      digitalWrite(S3, LOW);
+      digitalWrite(S2, LOW);
+      digitalWrite(S1, LOW);
+      digitalWrite(S0, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 2:
+      digitalWrite(S0, LOW);
+      digitalWrite(S1, LOW);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S3, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 3:
+      digitalWrite(S0, LOW);
+      digitalWrite(S1, LOW);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S3, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 4:
+      digitalWrite(S0, LOW);
+      digitalWrite(S1, HIGH);
+      digitalWrite(S2, LOW);
+      digitalWrite(S3, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 5:
+      digitalWrite(S3, LOW);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S1, LOW);
+      digitalWrite(S0, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 6:
+      digitalWrite(S3, LOW);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S1, HIGH);
+      digitalWrite(S0, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 7:
+      digitalWrite(S3, LOW);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S1, HIGH);
+      digitalWrite(S0, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 8:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, LOW);
+      digitalWrite(S1, LOW);
+      digitalWrite(S0, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 9:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, LOW);
+      digitalWrite(S1, LOW);
+      digitalWrite(S0, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 10:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, LOW);
+      digitalWrite(S1, HIGH);
+      digitalWrite(S0, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 11:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, LOW);
+      digitalWrite(S1, HIGH);
+      digitalWrite(S0, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 12:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S1, LOW);
+      digitalWrite(S0, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 13:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S1, LOW);
+      digitalWrite(S0, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 14:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S1, HIGH);
+      digitalWrite(S0, LOW);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    case 15:
+      digitalWrite(S3, HIGH);
+      digitalWrite(S2, HIGH);
+      digitalWrite(S1, HIGH);
+      digitalWrite(S0, HIGH);
+      digitalWrite(E, HIGH);
+      delay(LOCK_PULSE_MS);
+      digitalWrite(E, LOW);
+      break;
+    default:
+      break;
   }
+  */
 }
 
 // ============================================================================

@@ -26,11 +26,12 @@
 
 // =================== Trincos ===================
 #define LOCK_PULSE_MS 800   // tempo (ms) que o solenoide fica energizado
-#define s3 2
-#define s2 15
-#define s1 16
-#define s0 17
-#define e 0
+#define N_SERVOS 3
+#define S3 2
+#define S2 15
+#define S1 16
+#define S0 17
+#define E 0
 
 // =================== Capacidade do armário ===================
 #define N_SLOTS 16          // 8 'P' (1-8), 4 'M' (9-12), 4 'G' (13-16)
