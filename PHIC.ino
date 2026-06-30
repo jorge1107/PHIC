@@ -1,33 +1,29 @@
 /* ============================================================================
- *  ARMÁRIO INTELIGENTE DE ENCOMENDAS — ESP32
- *  Fluxo 1 (Entregador): teclado -> apartamento + tamanho -> abre slot vazio
- *                        compatível -> registra inserção -> notifica morador.
- *  Fluxo 2 (Morador):    aproxima tag RFID -> sistema abre TODOS os slots
- *                        ocupados do seu apartamento -> registra retirada.
- * ----------------------------------------------------------------------------
- *  Bibliotecas (Library Manager):
- *    - LiquidCrystal_I2C
- *    - Keypad
- *    - MFRC522                            (by GithubCommunity)
- *  Núcleo: ESP32 (Espressif)
+ * ARMÁRIO INTELIGENTE DE ENCOMENDAS — ESP32 (Versão OLED + E-mail SMTP)
+ * Fluxo 1 (Entregador): teclado -> apartamento + tamanho -> abre slot vazio
+ * compatível -> registra inserção -> notifica morador.
+ * Fluxo 2 (Morador):    aproxima tag RFID -> sistema abre TODOS os slots
+ * ocupados do seu apartamento -> registra retirada.
  * ==========================================================================*/
 
 #include <WiFi.h>
 #include <time.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <LiquidCrystal_I2C.h>
+#include <Adafruit_GFX.h>       // Biblioteca gráfica para o OLED
+#include <Adafruit_SSD1306.h>   // Biblioteca do display OLED SSD1306
 #include <Keypad.h>
 #include <MFRC522.h>
 #include <ESP32Servo.h>
 #include <vector>
+#include <ESP_Mail_Client.h>    // Biblioteca para envio de e-mails
 
 #include "config.h"
 #include "slot.h"
 #include "moradores.h"
 
 // ----------------------------- Periféricos ----------------------------------
-LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 MFRC522           rfid(RFID_SS_PIN, RFID_RST_PIN);
 Servo servos[N_SERVOS];
 const int pinosServos[N_SERVOS] = {S2, S1, S0};
@@ -39,7 +35,7 @@ char teclas[LINHAS][COLUNAS] = {
   {'1','2','3','A'}, // A -> tamanho P
   {'4','5','6','B'}, // B -> tamanho M
   {'7','8','9','C'}, // C -> tamanho G
-  {'*','0','#','D'}  // '*' limpa/cancela  |  '#' confirma
+  {'*','0','#','D'}  // '*' limpa/cancela  | '#' confirma
 };
 byte pinosLinhas[LINHAS]   = {13, 12, 14, 27};
 byte pinosColunas[COLUNAS] = {26, 25, 33, 32};
@@ -51,7 +47,6 @@ std::vector<Slot> listaDeSlots;
 // ------------------------- Máquina de estados -------------------------------
 enum EstadoSistema { AGUARDANDO, DIGITANDO_APTO, SELECIONANDO_TAMANHO, ALOCANDO_SLOT };
 EstadoSistema estadoAtual = AGUARDANDO;
-
 String apartamentoDigitado = "";
 char   tamanhoSelecionado  = ' ';
 
@@ -66,18 +61,39 @@ String lerRFID();
 Time   obterHoraAtual();
 void   modoCadastroTag();
 
+// ------------------------ Configuração do e-mail ----------------------------
+SMTPSession smtp;
+
+// Função de callback para monitorar o status do envio no Serial Monitor
+void smtpCallback(SMTP_Status status) {
+  Serial.println(status.info());
+  if (status.success()) {
+    Serial.println("------------------------------------");
+    Serial.println("E-mail enviado com sucesso via SMTP!");
+    Serial.println("------------------------------------");
+  }
+}
+
 // ============================================================================
 //                                  SETUP
 // ============================================================================
 void setup() {
   Serial.begin(115200);
-  Wire.begin();            // I2C: SDA=21, SCL=22 (LCD + MCP23017)
+  Wire.begin();            // I2C: SDA=21, SCL=22
   SPI.begin();             // SPI: SCK=18, MISO=19, MOSI=23 (RFID)
 
-  // ---- LCD ----
-  lcd.init();
-  lcd.backlight();
-  lcd.print("Iniciando...");
+  // ---- Inicialização do Display OLED ----
+  if(!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println(F("Falha na alocação do display SSD1306"));
+    for(;;); 
+  }
+  
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Iniciando...");
+  display.display();
 
   // ---- RFID ----
   rfid.PCD_Init();
@@ -104,21 +120,11 @@ void setup() {
     listaDeSlots.push_back(slotTemporario);
   }
 
-  for (int i = 0; i < N_SERVOS; i++)
-  {
+  for (int i = 0; i < N_SERVOS; i++) {
     servos[i].setPeriodHertz(50);
     servos[i].attach(pinosServos[i], 500, 2400);
     servos[i].write(0);
   }
-  
-
-  /*
-  pinMode(S3, OUTPUT);
-  pinMode(S2, OUTPUT);
-  pinMode(S1, OUTPUT);
-  pinMode(S0, OUTPUT);
-  pinMode(E, OUTPUT);
-  */
 
   estadoAtual = AGUARDANDO;
   atualizarDisplay();
@@ -131,11 +137,74 @@ void loop() {
   char tecla = teclado.getKey();
   if (tecla) processarTeclado(tecla);
 
-  // O leitor RFID só fica ativo na tela inicial (retirada pelo morador).
+  // O leitor RFID só fica ativo na tela inicial (retirada pelo morador)
   if (estadoAtual == AGUARDANDO) {
     String uid = lerRFID();
     if (uid.length() > 0) processarRetirada(uid);
   }
+}
+
+// ============================================================================
+//                NOTIFICAÇÃO (E-mail via Protocolo SMTP)
+// ============================================================================
+void enviarNotificacao(int numeroApto, int idSlot, char tamanho) {
+    Serial.printf("Aviso de encomenda -> apto %d (slot %d, tam %c)\n", numeroApto, idSlot, tamanho);
+    
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("Sem WiFi: notificacao nao enviada.");
+      return;
+    }
+    
+    String emailDestinatario = getEmailByApto(numeroApto);
+    if (emailDestinatario == "") {
+      Serial.println("Apto sem email cadastrado: notificacao ignorada.");
+      return;
+    }
+
+    // Vincula a função de monitoramento à sessão SMTP
+    smtp.callback(smtpCallback);
+    
+    // Configura os parâmetros do servidor
+    Session_Config config;
+    config.server.host_name = SMTP_HOST;
+    config.server.port = SMTP_PORT;
+    config.login.email = AUTHOR_EMAIL;
+    config.login.password = SMTP_PASSWORD;
+    config.login.user_domain = "";
+
+    // Monta a estrutura da mensagem
+    SMTP_Message message;
+    message.sender.name = SENDER_NAME;
+    message.sender.email = AUTHOR_EMAIL;
+    
+    String assunto = "Nova Encomenda Recebida - Apto " + String(numeroApto);
+    message.subject = assunto.c_str();
+    message.addRecipient("Morador", emailDestinatario.c_str());
+    
+    // Conteúdo formatado em HTML
+    String textoMsg = "<h2>Olá, morador do apartamento " + String(numeroApto) + "!</h2>";
+    textoMsg += "<p>Uma nova encomenda foi depositada para você no armário inteligente.</p>";
+    textoMsg += "<ul>";
+    textoMsg += "<li><strong>Compartimento (Slot):</strong> " + String(idSlot) + "</li>";
+    textoMsg += "<li><strong>Tamanho do pacote:</strong> " + String(tamanho) + "</li>";
+    textoMsg += "</ul>";
+    textoMsg += "<br><p><em>Para retirar, basta aproximar sua tag RFID cadastrada no leitor do armário.</em></p>";
+
+    message.html.content = textoMsg.c_str();
+    message.html.charSet = "utf-8";
+    message.html.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
+    
+    message.priority = esp_mail_smtp_priority::esp_mail_smtp_priority_normal;
+    
+    // Tenta conectar e disparar o e-mail
+    if (!smtp.connect(&config)) {
+      Serial.printf("Falha ao conectar no servidor SMTP: %s\n", smtp.errorReason().c_str());
+      return;
+    }
+
+    if (!MailClient.sendMail(&smtp, &message)) {
+      Serial.printf("Erro ao enviar o e-mail: %s\n", smtp.errorReason().c_str());
+    }
 }
 
 // ============================================================================
@@ -159,45 +228,38 @@ Time obterHoraAtual() {
 }
 
 // ============================================================================
-//                                 DISPLAY
+//                                 DISPLAY (OLED)
 // ============================================================================
 void atualizarDisplay() {
-  lcd.clear();
+  display.clearDisplay();
+  
   switch (estadoAtual) {
     case AGUARDANDO:
-      lcd.setCursor(0, 0);
-      lcd.print("Entrega: digite");
-      lcd.setCursor(0, 1);
-      lcd.print("Morador: use tag");
+      display.setCursor(0, 0);  display.print("Entrega: digite");
+      display.setCursor(0, 16); display.print("Morador: use tag");
       break;
 
     case DIGITANDO_APTO:
-      lcd.setCursor(0, 0);
-      lcd.print("Apto: ");
-      lcd.print(apartamentoDigitado);
-      lcd.setCursor(0, 1);
-      lcd.print("#=OK *=Apagar");
+      display.setCursor(0, 0);  display.print("Apto: "); display.print(apartamentoDigitado);
+      display.setCursor(0, 16); display.print("#=OK *=Apagar");
       break;
 
     case SELECIONANDO_TAMANHO:
-      lcd.setCursor(0, 0);
-      lcd.print("Tam: A=P B=M C=G");
-      lcd.setCursor(0, 1);
-      lcd.print("Escolha uma opc");
+      display.setCursor(0, 0);  display.print("Tam: A=P B=M C=G");
+      display.setCursor(0, 16); display.print("Escolha uma opc");
       break;
 
     case ALOCANDO_SLOT:
-      lcd.setCursor(0, 0);
-      lcd.print("Buscando vaga...");
+      display.setCursor(0, 0);  display.print("Buscando vaga...");
       break;
   }
+  display.display();
 }
 
 // ============================================================================
 //                            TECLADO / FLUXO ENTREGA
 // ============================================================================
 void processarTeclado(char tecla) {
-  // '*' cancela e volta ao início em qualquer estado
   if (tecla == '*') {
     apartamentoDigitado = "";
     estadoAtual = AGUARDANDO;
@@ -207,9 +269,7 @@ void processarTeclado(char tecla) {
 
   switch (estadoAtual) {
     case AGUARDANDO:
-      // segurar '#' entra no modo cadastro de tag (utilitário de manutenção)
       if (tecla == '#') { modoCadastroTag(); return; }
-      // qualquer dígito inicia a digitação do apartamento
       if (tecla >= '0' && tecla <= '9') {
         apartamentoDigitado = String(tecla);
         estadoAtual = DIGITANDO_APTO;
@@ -259,23 +319,27 @@ void tentarAlocarCompartimento() {
 
       int idSlot = listaDeSlots[i].getId();
 
-      lcd.clear();
-      lcd.setCursor(0, 0); lcd.print("Slot aberto: ");  lcd.print(idSlot);
-      lcd.setCursor(0, 1); lcd.print("Coloque e feche");
-
+      display.clearDisplay();
+      display.setCursor(0, 0);  display.print("Slot aberto: "); display.print(idSlot);
+      display.setCursor(0, 16); display.print("Coloque e feche");
+      display.display();
+      
       Serial.printf("Abrindo trinco do slot ID: %d\n", idSlot);
-      abrirSlot(idSlot);                          // <-- aciona o trinco físico
+      abrirSlot(idSlot);
+      
+      // DISPARO DO E-MAIL AUTOMÁTICO
       enviarNotificacao(apNum, idSlot, tamanhoSelecionado);
-
+      
       encontrou = true;
       break;
     }
   }
 
   if (!encontrou) {
-    lcd.clear();
-    lcd.setCursor(0, 0); lcd.print("Sem slots "); lcd.print(tamanhoSelecionado);
-    lcd.setCursor(0, 1); lcd.print("disponiveis!");
+    display.clearDisplay();
+    display.setCursor(0, 0);  display.print("Sem slots "); display.print(tamanhoSelecionado);
+    display.setCursor(0, 16); display.print("disponiveis!");
+    display.display();
   }
 
   delay(4000);
@@ -307,10 +371,13 @@ String lerRFID() {
 void processarRetirada(const String& uid) {
   int apto = getAptoByUID(uid);
 
-  lcd.clear();
+  display.clearDisplay();
+  
   if (apto < 0) {
-    lcd.setCursor(0, 0); lcd.print("Tag nao");
-    lcd.setCursor(0, 1); lcd.print("cadastrada!");
+    display.setCursor(0, 0);  display.print("Tag nao");
+    display.setCursor(0, 16); display.print("cadastrada!");
+    display.display();
+    
     Serial.printf("Tag desconhecida: %s\n", uid.c_str());
     delay(3000);
     estadoAtual = AGUARDANDO;
@@ -331,14 +398,16 @@ void processarRetirada(const String& uid) {
     }
   }
 
-  lcd.clear();
+  display.clearDisplay();
   if (abertos > 0) {
-    lcd.setCursor(0, 0); lcd.print("Apto "); lcd.print(apto);
-    lcd.setCursor(0, 1); lcd.print(abertos); lcd.print(" encomenda(s)");
+    display.setCursor(0, 0);  display.print("Apto "); display.print(apto);
+    display.setCursor(0, 16); display.print(abertos); display.print(" emcomenda(s)");
   } else {
-    lcd.setCursor(0, 0); lcd.print("Nenhuma");
-    lcd.setCursor(0, 1); lcd.print("encomenda.");
+    display.setCursor(0, 0);  display.print("Nenhuma");
+    display.setCursor(0, 16); display.print("encomenda.");
   }
+  display.display();
+  
   delay(4000);
   estadoAtual = AGUARDANDO;
   atualizarDisplay();
@@ -348,203 +417,33 @@ void processarRetirada(const String& uid) {
 //                       ACIONAMENTO FÍSICO DO TRINCO
 // ============================================================================
 void abrirSlot(int idSlot) {
-
-
-
-  /*
-  int pino = idSlot - 1;
-  if (pino < 0 || pino >= N_SLOTS) return;
-
-  
-  switch (pino) {
-    case 0:
-      digitalWrite(S3, LOW);
-      digitalWrite(S2, LOW);
-      digitalWrite(S1, LOW);
-      digitalWrite(S0, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 1:
-      digitalWrite(S3, LOW);
-      digitalWrite(S2, LOW);
-      digitalWrite(S1, LOW);
-      digitalWrite(S0, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 2:
-      digitalWrite(S0, LOW);
-      digitalWrite(S1, LOW);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S3, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 3:
-      digitalWrite(S0, LOW);
-      digitalWrite(S1, LOW);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S3, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 4:
-      digitalWrite(S0, LOW);
-      digitalWrite(S1, HIGH);
-      digitalWrite(S2, LOW);
-      digitalWrite(S3, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 5:
-      digitalWrite(S3, LOW);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S1, LOW);
-      digitalWrite(S0, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 6:
-      digitalWrite(S3, LOW);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S1, HIGH);
-      digitalWrite(S0, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 7:
-      digitalWrite(S3, LOW);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S1, HIGH);
-      digitalWrite(S0, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 8:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, LOW);
-      digitalWrite(S1, LOW);
-      digitalWrite(S0, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 9:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, LOW);
-      digitalWrite(S1, LOW);
-      digitalWrite(S0, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 10:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, LOW);
-      digitalWrite(S1, HIGH);
-      digitalWrite(S0, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 11:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, LOW);
-      digitalWrite(S1, HIGH);
-      digitalWrite(S0, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 12:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S1, LOW);
-      digitalWrite(S0, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 13:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S1, LOW);
-      digitalWrite(S0, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 14:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S1, HIGH);
-      digitalWrite(S0, LOW);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    case 15:
-      digitalWrite(S3, HIGH);
-      digitalWrite(S2, HIGH);
-      digitalWrite(S1, HIGH);
-      digitalWrite(S0, HIGH);
-      digitalWrite(E, HIGH);
-      delay(LOCK_PULSE_MS);
-      digitalWrite(E, LOW);
-      break;
-    default:
-      break;
-  }
-  */
-}
-
-// ============================================================================
-//                NOTIFICAÇÃO (WhatsApp via CallMeBot - HTTPS GET)
-// ============================================================================
-void enviarNotificacao(int numeroApto, int idSlot, char tamanho) {
-  Serial.printf("Aviso de encomenda -> apto %d (slot %d, tam %c)\n", numeroApto, idSlot, tamanho);
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Sem WiFi: notificacao nao enviada.");
-    return;
-  }
-  String email = getEmailByApto(numeroApto);
-  if (email == "") {
-    Serial.println("Apto sem email cadastrado: notificacao ignorada.");
-    return;
-  }
+  // Lógica dos trincos físicos / multiplexador permanece aqui
 }
 
 // ============================================================================
 //          UTILITÁRIO: descobrir o UID de uma tag p/ cadastrar moradores
 // ============================================================================
 void modoCadastroTag() {
-  lcd.clear();
-  lcd.setCursor(0, 0); lcd.print("MODO CADASTRO");
-  lcd.setCursor(0, 1); lcd.print("Aproxime a tag");
+  display.clearDisplay();
+  display.setCursor(0, 0);  display.print("MODO CADASTRO");
+  display.setCursor(0, 16); display.print("Aproxime a tag");
+  display.display();
+  
   Serial.println(">> MODO CADASTRO: aproxime a tag para ler o UID (Serial).");
-
   unsigned long t0 = millis();
-  while (millis() - t0 < 10000) {       // 10 s de janela
+  
+  while (millis() - t0 < 10000) {
     String uid = lerRFID();
     if (uid.length() > 0) {
       Serial.printf(">> UID lido: %s  (copie para moradores.cpp)\n", uid.c_str());
-      lcd.clear();
-      lcd.setCursor(0, 0); lcd.print("UID:");
-      lcd.setCursor(0, 1); lcd.print(uid);
+      display.clearDisplay();
+      display.setCursor(0, 0);  display.print("UID lido:");
+      display.setCursor(0, 16); display.print(uid);
+      display.display();
       delay(4000);
       break;
     }
-    if (teclado.getKey() == '*') break; // cancela
+    if (teclado.getKey() == '*') break;
   }
   estadoAtual = AGUARDANDO;
   atualizarDisplay();
